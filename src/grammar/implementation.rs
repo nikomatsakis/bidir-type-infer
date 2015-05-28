@@ -1,7 +1,5 @@
 use super::*;
 
-use std::rc::Rc; // bug in rusty-peg
-
 rusty_peg! {
     parser Grammar<'input> {
         TERM: Term<'input> =
