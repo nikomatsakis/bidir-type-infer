@@ -21,7 +21,7 @@ rusty_peg! {
             ("\\", <id:IDENTIFIER>, ".", <t:TERM>) => Term::new(TermKind::Lambda(id, t));
 
         ASCRIPTION_TERM: Term<'input> =
-            ("(", <t:TERM>, ":", <ty:TYPE>, ")") => Term::new(TermKind::Typed(t, ty));
+            ("(", <t:TERM>, ":", <ty:TYPE>, ")") => Term::new(TermKind::Ascription(t, ty));
 
         PAREN_TERM: Term<'input> =
             ("(", <t:TERM>, ")") => t;

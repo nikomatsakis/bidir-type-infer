@@ -47,7 +47,7 @@ pub enum TermKind<'input> {
     Unit,
     Lambda(Id<'input>, Term<'input>),
     Call(Term<'input>, Term<'input>),
-    Typed(Term<'input>, Type<'input>),
+    Ascription(Term<'input>, Type<'input>),
 }
 
 impl<'input> Term<'input> {
