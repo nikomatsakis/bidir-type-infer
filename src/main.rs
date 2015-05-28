@@ -3,6 +3,6 @@ extern crate rusty_peg;
 
 mod grammar;
 
-#[test]
-fn it_works() {
+fn main() {
+    println!("Hello, world!");
 }
