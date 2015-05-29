@@ -5,18 +5,18 @@ mod parser;
 #[cfg(test)] mod test;
 
 pub fn parse_term(input: &str) -> Term {
-    let mut parser = implementation::Grammar::new(());
-    implementation::TERM.parse_complete(&mut parser, input).unwrap()
+    let mut parser = parser::Grammar::new(());
+    parser::TERM.parse_complete(&mut parser, input).unwrap()
 }
 
 pub fn parse_type(input: &str) -> Type {
-    let mut parser = implementation::Grammar::new(());
-    implementation::TYPE.parse_complete(&mut parser, input).unwrap()
+    let mut parser = parser::Grammar::new(());
+    parser::TYPE.parse_complete(&mut parser, input).unwrap()
 }
 
 pub fn parse_id(input: &str) -> Id {
-    let mut parser = implementation::Grammar::new(());
-    implementation::IDENTIFIER.parse_complete(&mut parser, input).unwrap()
+    let mut parser = parser::Grammar::new(());
+    parser::IDENTIFIER.parse_complete(&mut parser, input).unwrap()
 }
 
 ///////////////////////////////////////////////////////////////////////////
