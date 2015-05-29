@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate rusty_peg;
 
-mod grammar;
+mod ast;
 
 fn main() {
     println!("Hello, world!");
