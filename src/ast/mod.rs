@@ -1,7 +1,7 @@
 use std::rc::Rc;
 use rusty_peg::Symbol;
+use parser;
 
-mod parser;
 #[cfg(test)] mod test;
 
 pub fn parse_term(input: &str) -> Term {

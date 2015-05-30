@@ -1,7 +1,10 @@
-use super::*;
+use ast::*;
 
 rusty_peg! {
     parser Grammar<'input> {
+        ///////////////////////////////////////////////////////////////////////////
+        // AST TERMS
+
         TERM: Term<'input> =
             fold(<lhs:NON_CALL_TERM>,
                  (<rhs:NON_CALL_TERM>) => Term::new(TermKind::Call(lhs, rhs)));
@@ -24,6 +27,9 @@ rusty_peg! {
         PAREN_TERM: Term<'input> =
             ("(", <t:TERM>, ")") => t;
 
+        ///////////////////////////////////////////////////////////////////////////
+        // AST TYPES
+
         TYPE: Type<'input> =
             (ARROW_TYPE / NON_ARROW_TYPE);
 
@@ -34,7 +40,7 @@ rusty_peg! {
             (UNIT_TYPE / VAR_TYPE / FORALL_TYPE / PAREN_TYPE);
 
         UNIT_TYPE: Type<'input> =
-            ("1") => Type::new(TypeKind::Unit);
+            ("()") => Type::new(TypeKind::Unit);
 
         FORALL_TYPE: Type<'input> =
             ("forall", <id:IDENTIFIER>, ".", <ty:TYPE>) => Type::new(TypeKind::ForAll(id, ty));
@@ -44,6 +50,9 @@ rusty_peg! {
 
         PAREN_TYPE: Type<'input> =
             ("(", <t:TYPE>, ")") => t;
+
+        ///////////////////////////////////////////////////////////////////////////
+        // IDENTIFIERS
 
         IDENTIFIER: Id<'input> =
             (<i:IDENTIFIER_RE>) => Id::new(i);

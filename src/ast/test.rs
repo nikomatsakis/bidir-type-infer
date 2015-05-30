@@ -36,6 +36,6 @@ pub fn parse_right_leaning_type() {
 
 #[test]
 pub fn parse_unit_type() {
-    let type1 = parse_type("1");
+    let type1 = parse_type("()");
     assert_eq!(type1.kind(), &TypeKind::Unit);
 }
