@@ -1,4 +1,9 @@
-use ast::*;
+use ast::{ExistentialId, Id, Term, TermKind, Type, TypeKind};
+use rusty_peg::Symbol;
+use std::str::FromStr;
+use typeck::cx;
+
+#[cfg(test)] mod test;
 
 rusty_peg! {
     parser Grammar<'input> {
@@ -52,6 +57,33 @@ rusty_peg! {
             ("(", <t:TYPE>, ")") => t;
 
         ///////////////////////////////////////////////////////////////////////////
+        // TYPECK CONTEXTS
+
+        CX: cx::Context<'input> =
+            fold(<lhs:CX_ROOT>, (",", <rhs:CX_ITEM>) => lhs.add(rhs));
+
+        CX_ROOT: cx::Context<'input> =
+            (<i:CX_ITEM>) => cx::Context::root(i);
+
+        CX_ITEM: cx::ContextItem<'input> =
+            (CX_VAR_TYPE / CX_TYPE_DECL / CX_EXISTENTIAL_DECL1 / CX_EXISTENTIAL_DECL2 / CX_MARKER);
+
+        CX_VAR_TYPE: cx::ContextItem<'input> =
+            (<i:IDENTIFIER>, ":", <t:TYPE>) => cx::ContextItem::VarType(i, t);
+
+        CX_TYPE_DECL: cx::ContextItem<'input> =
+            (<i:IDENTIFIER>) => cx::ContextItem::TypeDecl(i);
+
+        CX_EXISTENTIAL_DECL1: cx::ContextItem<'input> =
+            (<i:EXISTENTIAL>, ":", <t:TYPE>) => cx::ContextItem::ExistentialDecl(i, Some(t));
+
+        CX_EXISTENTIAL_DECL2: cx::ContextItem<'input> =
+            (<i:EXISTENTIAL>) => cx::ContextItem::ExistentialDecl(i, None);
+
+        CX_MARKER: cx::ContextItem<'input> =
+            (">", <i:EXISTENTIAL>) => cx::ContextItem::Marker(i);
+
+        ///////////////////////////////////////////////////////////////////////////
         // IDENTIFIERS
 
         IDENTIFIER: Id<'input> =
@@ -59,5 +91,26 @@ rusty_peg! {
 
         IDENTIFIER_RE: &'input str =
             regex(r"[a-zA-Z_][a-zA-Z0-9_]*") - ["forall"];
+
+        EXISTENTIAL: ExistentialId =
+            (<s:EXISTENTIAL_RE>) => ExistentialId(u32::from_str(&s[1..]).unwrap());
+
+        EXISTENTIAL_RE: &'input str =
+            regex(r"$[0-9]+");
     }
+}
+
+pub fn parse_term(input: &str) -> Term {
+    let mut parser = Grammar::new(());
+    TERM.parse_complete(&mut parser, input).unwrap()
+}
+
+pub fn parse_type(input: &str) -> Type {
+    let mut parser = Grammar::new(());
+    TYPE.parse_complete(&mut parser, input).unwrap()
+}
+
+pub fn parse_id(input: &str) -> Id {
+    let mut parser = Grammar::new(());
+    IDENTIFIER.parse_complete(&mut parser, input).unwrap()
 }

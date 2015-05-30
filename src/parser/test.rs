@@ -1,4 +1,5 @@
 use super::*;
+use ast::*;
 
 #[test]
 pub fn parse_left_leaning_call() {

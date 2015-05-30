@@ -1,28 +1,10 @@
 use std::rc::Rc;
 use rusty_peg::Symbol;
-use parser;
-
-#[cfg(test)] mod test;
-
-pub fn parse_term(input: &str) -> Term {
-    let mut parser = parser::Grammar::new(());
-    parser::TERM.parse_complete(&mut parser, input).unwrap()
-}
-
-pub fn parse_type(input: &str) -> Type {
-    let mut parser = parser::Grammar::new(());
-    parser::TYPE.parse_complete(&mut parser, input).unwrap()
-}
-
-pub fn parse_id(input: &str) -> Id {
-    let mut parser = parser::Grammar::new(());
-    parser::IDENTIFIER.parse_complete(&mut parser, input).unwrap()
-}
 
 ///////////////////////////////////////////////////////////////////////////
 // Identifiers
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Id<'input> {
     text: &'input str
 }
@@ -32,6 +14,9 @@ impl<'input> Id<'input> {
         Id { text: text }
     }
 }
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct ExistentialId(pub u32);
 
 ///////////////////////////////////////////////////////////////////////////
 // Terms
@@ -72,6 +57,7 @@ pub struct Type<'input> {
 pub enum TypeKind<'input> {
     Var(Id<'input>),
     Unit,
+    Existential(ExistentialId),
     ForAll(Id<'input>, Type<'input>),
     Arrow(Type<'input>, Type<'input>),
 }

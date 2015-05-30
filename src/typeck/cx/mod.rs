@@ -2,8 +2,6 @@ use ast;
 use std::ops::Deref;
 use std::rc::Rc;
 
-use super::ty;
-
 pub mod iter;
 #[cfg(test)] mod test;
 
@@ -23,6 +21,21 @@ impl<'input> Deref for Context<'input> {
     fn deref(&self) -> &ContextData<'input> {
         &*self.data
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ContextItem<'input> {
+    /// the type is in scope
+    TypeDecl(ast::Id<'input>),
+
+    /// variable with name `id` has type `ty`
+    VarType(/*id*/ ast::Id<'input>, /*ty*/ ast::Type<'input>),
+
+    /// existential variable is in scope
+    ExistentialDecl(ast::ExistentialId, Option<ast::Type<'input>>),
+
+    /// marker for an existential variable
+    Marker(ast::ExistentialId),
 }
 
 impl<'input> Context<'input> {
@@ -46,21 +59,6 @@ impl<'input> Context<'input> {
     pub fn iter<'cx>(&'cx self) -> iter::ContextIterator<'cx, 'input> {
         iter::ContextIterator::new(Some(self))
     }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub enum ContextItem<'input> {
-    /// the type is in scope
-    TypeDecl(ast::Id<'input>),
-
-    /// variable with name `id` has type `ty`
-    VarType(/*id*/ ast::Id<'input>, /*ty*/ ty::Type<'input>),
-
-    /// existential variable is in scope
-    ExistentialDecl(u32, Option<ty::Type<'input>>),
-
-    /// marker for an existential variable
-    Marker(u32),
 }
 
 ///////////////////////////////////////////////////////////////////////////
