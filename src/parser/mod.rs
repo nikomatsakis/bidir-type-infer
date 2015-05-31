@@ -1,7 +1,7 @@
 use ast::{ExistentialId, Id, Term, TermKind, Type, TypeKind};
 use rusty_peg::Symbol;
 use std::str::FromStr;
-use typeck::cx;
+use typeck::cx::{Context, ContextItem};
 
 #[cfg(test)] mod test;
 
@@ -59,29 +59,29 @@ rusty_peg! {
         ///////////////////////////////////////////////////////////////////////////
         // TYPECK CONTEXTS
 
-        CX: cx::Context<'input> =
+        CX: Context<'input> =
             fold(<lhs:CX_ROOT>, (",", <rhs:CX_ITEM>) => lhs.add(rhs));
 
-        CX_ROOT: cx::Context<'input> =
-            (<i:CX_ITEM>) => cx::Context::root(i);
+        CX_ROOT: Context<'input> =
+            (<i:CX_ITEM>) => Context::root(i);
 
-        CX_ITEM: cx::ContextItem<'input> =
+        CX_ITEM: ContextItem<'input> =
             (CX_VAR_TYPE / CX_TYPE_DECL / CX_EXISTENTIAL_DECL1 / CX_EXISTENTIAL_DECL2 / CX_MARKER);
 
-        CX_VAR_TYPE: cx::ContextItem<'input> =
-            (<i:IDENTIFIER>, ":", <t:TYPE>) => cx::ContextItem::VarType(i, t);
+        CX_VAR_TYPE: ContextItem<'input> =
+            (<i:IDENTIFIER>, ":", <t:TYPE>) => ContextItem::VarType(i, t);
 
-        CX_TYPE_DECL: cx::ContextItem<'input> =
-            (<i:IDENTIFIER>) => cx::ContextItem::TypeDecl(i);
+        CX_TYPE_DECL: ContextItem<'input> =
+            (<i:IDENTIFIER>) => ContextItem::TypeDecl(i);
 
-        CX_EXISTENTIAL_DECL1: cx::ContextItem<'input> =
-            (<i:EXISTENTIAL>, ":", <t:TYPE>) => cx::ContextItem::ExistentialDecl(i, Some(t));
+        CX_EXISTENTIAL_DECL1: ContextItem<'input> =
+            (<i:EXISTENTIAL>, "=", <t:TYPE>) => ContextItem::ExistentialDecl(i, Some(t));
 
-        CX_EXISTENTIAL_DECL2: cx::ContextItem<'input> =
-            (<i:EXISTENTIAL>) => cx::ContextItem::ExistentialDecl(i, None);
+        CX_EXISTENTIAL_DECL2: ContextItem<'input> =
+            (<i:EXISTENTIAL>) => ContextItem::ExistentialDecl(i, None);
 
-        CX_MARKER: cx::ContextItem<'input> =
-            (">", <i:EXISTENTIAL>) => cx::ContextItem::Marker(i);
+        CX_MARKER: ContextItem<'input> =
+            (">", <i:EXISTENTIAL>) => ContextItem::Marker(i);
 
         ///////////////////////////////////////////////////////////////////////////
         // IDENTIFIERS
@@ -96,7 +96,7 @@ rusty_peg! {
             (<s:EXISTENTIAL_RE>) => ExistentialId(u32::from_str(&s[1..]).unwrap());
 
         EXISTENTIAL_RE: &'input str =
-            regex(r"$[0-9]+");
+            regex(r"\$[0-9]+");
     }
 }
 
@@ -113,4 +113,9 @@ pub fn parse_type(input: &str) -> Type {
 pub fn parse_id(input: &str) -> Id {
     let mut parser = Grammar::new(());
     IDENTIFIER.parse_complete(&mut parser, input).unwrap()
+}
+
+pub fn parse_cx(input: &str) -> Context {
+    let mut parser = Grammar::new(());
+    CX.parse_complete(&mut parser, input).unwrap()
 }

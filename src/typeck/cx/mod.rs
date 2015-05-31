@@ -1,11 +1,12 @@
 use ast;
+use std::fmt::{Debug, Error, Formatter};
 use std::ops::Deref;
 use std::rc::Rc;
 
 pub mod iter;
 #[cfg(test)] mod test;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct Context<'input> {
     data: Rc<ContextData<'input>>
 }
@@ -23,7 +24,21 @@ impl<'input> Deref for Context<'input> {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+impl<'input> Debug for Context<'input> {
+    fn fmt(&self, fmt: &mut Formatter) -> Result<(), Error> {
+        try!(write!(fmt, "["));
+        let mut first = true;
+        for item in self.iter() {
+            if !first { try!(write!(fmt, ",")); }
+            try!(write!(fmt, "{:?}", item));
+            first = false;
+        }
+        try!(write!(fmt, "]"));
+        Ok(())
+    }
+}
+
+#[derive(Clone, Eq, PartialEq)]
 pub enum ContextItem<'input> {
     /// the type is in scope
     TypeDecl(ast::Id<'input>),
@@ -36,6 +51,18 @@ pub enum ContextItem<'input> {
 
     /// marker for an existential variable
     Marker(ast::ExistentialId),
+}
+
+impl<'input> Debug for ContextItem<'input> {
+    fn fmt(&self, fmt: &mut Formatter) -> Result<(), Error> {
+        match *self {
+            ContextItem::TypeDecl(ref id) => write!(fmt, "{:?}", id),
+            ContextItem::VarType(ref id, ref ty) => write!(fmt, "{:?}:{:?}", id, ty),
+            ContextItem::ExistentialDecl(ref id, None) => write!(fmt, "{:?}", id),
+            ContextItem::ExistentialDecl(ref id, Some(ref ty)) => write!(fmt, "{:?}={:?}", id, ty),
+            ContextItem::Marker(ref id) => write!(fmt, ">{:?}", id),
+        }
+    }
 }
 
 impl<'input> Context<'input> {

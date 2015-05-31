@@ -21,9 +21,7 @@ pub fn parse_unit_ascribe() {
     let term1 = parse_term("(x: Y)");
     assert_eq!(
         format!("{:?}", term1),
-        "Term { kind: Ascription(\
-         Term { kind: Var(Id { text: \"x\" }) }, \
-         Type { kind: Var(Id { text: \"Y\" }) }) }");
+        "(x:Y)");
 }
 
 #[test]
@@ -39,4 +37,12 @@ pub fn parse_right_leaning_type() {
 pub fn parse_unit_type() {
     let type1 = parse_type("()");
     assert_eq!(type1.kind(), &TypeKind::Unit);
+}
+
+#[test]
+pub fn parse_context() {
+    let cx1 = parse_cx("X,>$1,$1,$2=Z");
+    assert_eq!(
+        format!("{:?}", cx1),
+        "[$2=Z,$1,>$1,X]");
 }
