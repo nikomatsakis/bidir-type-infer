@@ -3,34 +3,20 @@ use std::fmt::{Debug, Error, Formatter};
 use std::ops::Deref;
 use std::rc::Rc;
 
-pub mod iter;
 #[cfg(test)] mod test;
 
 #[derive(Clone, Eq, PartialEq)]
 pub struct Context<'input> {
-    data: Rc<ContextData<'input>>
-}
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct ContextData<'input> {
-    pub item: ContextItem<'input>,
-    pub next: Option<Context<'input>>
-}
-
-impl<'input> Deref for Context<'input> {
-    type Target = ContextData<'input>;
-    fn deref(&self) -> &ContextData<'input> {
-        &*self.data
-    }
+    pub items: Vec<ContextItem<'input>>
 }
 
 impl<'input> Debug for Context<'input> {
     fn fmt(&self, fmt: &mut Formatter) -> Result<(), Error> {
         let mut items: Vec<_> =
-            self.iter()
+            self.items
+                .iter()
                 .map(|item| format!("{:?}", item))
                 .collect();
-        items.reverse();
         write!(fmt, "[{}]", items.connect(", "))
     }
 }
@@ -63,25 +49,13 @@ impl<'input> Debug for ContextItem<'input> {
 }
 
 impl<'input> Context<'input> {
-    pub fn new(item: ContextItem<'input>, next: Option<Context<'input>>) -> Context<'input> {
-        Context { data: Rc::new(ContextData {
-            item: item,
-            next: next
-        })}
+    pub fn new() -> Context<'input> {
+        Context { items: vec![] }
     }
 
-    pub fn root(item: ContextItem<'input>) -> Context<'input> {
-        Context::new(item, None)
-    }
-
-    /// adds a new item to the context
-    pub fn add(&self, item: ContextItem<'input>) -> Context<'input> {
-        Context::new(item, Some(self.clone()))
-    }
-
-    /// walks the items in the context, from most recently added to the end
-    pub fn iter<'cx>(&'cx self) -> iter::ContextIterator<'cx, 'input> {
-        iter::ContextIterator::new(Some(self))
+    pub fn add(mut self, item: ContextItem<'input>) -> Context<'input> {
+        self.items.push(item);
+        self
     }
 }
 

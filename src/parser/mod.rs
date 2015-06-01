@@ -63,7 +63,7 @@ rusty_peg! {
             fold(<lhs:CX_ROOT>, (",", <rhs:CX_ITEM>) => lhs.add(rhs));
 
         CX_ROOT: Context<'input> =
-            (<i:CX_ITEM>) => Context::root(i);
+            (<i:CX_ITEM>) => Context::new().add(i);
 
         CX_ITEM: ContextItem<'input> =
             (CX_VAR_TYPE / CX_TYPE_DECL / CX_EXISTENTIAL_DECL1 / CX_EXISTENTIAL_DECL2 / CX_MARKER);
