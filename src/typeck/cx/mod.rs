@@ -26,15 +26,12 @@ impl<'input> Deref for Context<'input> {
 
 impl<'input> Debug for Context<'input> {
     fn fmt(&self, fmt: &mut Formatter) -> Result<(), Error> {
-        try!(write!(fmt, "["));
-        let mut first = true;
-        for item in self.iter() {
-            if !first { try!(write!(fmt, ",")); }
-            try!(write!(fmt, "{:?}", item));
-            first = false;
-        }
-        try!(write!(fmt, "]"));
-        Ok(())
+        let mut items: Vec<_> =
+            self.iter()
+                .map(|item| format!("{:?}", item))
+                .collect();
+        items.reverse();
+        write!(fmt, "[{}]", items.connect(", "))
     }
 }
 

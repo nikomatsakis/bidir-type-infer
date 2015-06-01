@@ -44,5 +44,5 @@ pub fn parse_context() {
     let cx1 = parse_cx("X,>$1,$1,$2=Z");
     assert_eq!(
         format!("{:?}", cx1),
-        "[$2=Z,$1,>$1,X]");
+        "[X, >$1, $1, $2=Z]");
 }
