@@ -42,7 +42,7 @@ rusty_peg! {
             (<l:NON_ARROW_TYPE>, "->", <t:TYPE>) => Type::new(TypeKind::Arrow(l, t));
 
         NON_ARROW_TYPE: Type<'input> =
-            (UNIT_TYPE / VAR_TYPE / FORALL_TYPE / PAREN_TYPE);
+            (UNIT_TYPE / VAR_TYPE / FORALL_TYPE / PAREN_TYPE / EXISTENTIAL_TYPE);
 
         UNIT_TYPE: Type<'input> =
             ("()") => Type::new(TypeKind::Unit);
@@ -52,6 +52,9 @@ rusty_peg! {
 
         VAR_TYPE: Type<'input> =
             (<id:IDENTIFIER>) => Type::new(TypeKind::Var(id));
+
+        EXISTENTIAL_TYPE: Type<'input> =
+            (<id:EXISTENTIAL>) => Type::new(TypeKind::Existential(id));
 
         PAREN_TYPE: Type<'input> =
             ("(", <t:TYPE>, ")") => t;
