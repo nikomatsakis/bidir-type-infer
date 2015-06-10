@@ -52,3 +52,11 @@ fn subtype_arrow_id() {
     assert!(cx.subtype(ty1, ty1));
     assert!(!cx.subtype(ty1, ty2));
 }
+
+#[test]
+fn subtype_forall_r() {
+    let mut cx = parser::parse_cx("A,B,C");
+    let mut ty1 = &parser::parse_type("A");
+    let mut ty2 = &parser::parse_type("forall x. x");
+    assert!(!cx.subtype(ty1, ty2));
+}
