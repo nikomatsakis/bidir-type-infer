@@ -1,4 +1,4 @@
-use ast::{self, ExistentialId, Type, TypeKind};
+use ast::{self, ExistentialId, Id, Type, TypeKind};
 use std::fmt::{Debug, Error, Formatter};
 use std::ops::Deref;
 use std::rc::Rc;
@@ -7,7 +7,8 @@ use std::rc::Rc;
 
 #[derive(Clone, Eq, PartialEq)]
 pub struct Context<'input> {
-    pub items: Vec<ContextItem<'input>>
+    pub items: Vec<ContextItem<'input>>,
+    pub existentials: u32,
 }
 
 impl<'input> Debug for Context<'input> {
@@ -54,7 +55,7 @@ impl<'input> Context<'input> {
 
     pub fn new() -> Context<'input>
     {
-        Context { items: vec![] }
+        Context { items: vec![], existentials: 0 }
     }
 
     pub fn add(mut self, item: ContextItem<'input>) -> Context<'input>
@@ -100,6 +101,97 @@ impl<'input> Context<'input> {
     ///////////////////////////////////////////////////////////////////////////
     // Rules
 
+    // In the paper:
+    //
+    //    Cx |- A <: B -| Cx'
+    //
+    // but here we use mutability. If true is returned, then `self` is
+    // mutated in place and the subtyping holds, else `cx` is
+    // unmodified.
+    pub fn subtype(&mut self, a_ty: &Type<'input>, b_ty: &Type<'input>) -> bool {
+        match (a_ty.kind(), b_ty.kind()) {
+            // Var
+            (&TypeKind::Var(a_id), &TypeKind::Var(b_id)) if a_id == b_id => {
+                self.type_wf(a_ty)
+            }
+
+            // Unit
+            (&TypeKind::Unit, &TypeKind::Unit) => {
+                true
+            }
+
+            // Exvar
+            (&TypeKind::Existential(a_id), &TypeKind::Existential(b_id)) if a_id == b_id => {
+                self.type_wf(a_ty)
+            }
+
+            // <: ->
+            (&TypeKind::Arrow(ref a_in, ref a_out), &TypeKind::Arrow(ref b_in, ref b_out)) => {
+                self.try(|this| {
+                    if !this.subtype(b_in, a_in) { return false; }
+                    let a_out1 = this.subst(a_out);
+                    let b_out1 = this.subst(b_out);
+                    this.subtype(&a_out1, &b_out1)
+                })
+            }
+
+            // <: ForAll L
+            (&TypeKind::ForAll(a_id, ref a_ty), _) => {
+                self.try(|this| {
+                    let existential = this.fresh_existential();
+                    this.items.push(ContextItem::Marker(existential));
+                    this.items.push(ContextItem::ExistentialDecl(existential, None));
+
+                    let a_ty1 = a_ty.instantiate(a_id, existential);
+                    if !this.subtype(&a_ty1, b_ty) { return false; }
+
+                    this.pop_marker(existential);
+                    true
+                })
+            }
+
+            // <: ForAll R
+            (_, &TypeKind::ForAll(b_id, ref b_quantified_ty)) => {
+                self.try(|this| {
+                    this.items.push(ContextItem::TypeDecl(b_id));
+
+                    if !this.subtype(a_ty, b_quantified_ty) { return false; }
+
+                    this.pop_type_decl(b_id);
+                    true
+                })
+            }
+
+            // <: InstantiateL
+            (&TypeKind::Existential(a_id), _) => {
+                self.try(|this| {
+                    if !this.type_wf(a_ty) { return false; }
+                    assert!(!b_ty.references(a_id));
+                    this.instantiate_left(a_id, b_ty)
+                })
+            }
+
+            // <: InstantiateR
+            (_, &TypeKind::Existential(b_id)) => {
+                self.try(|this| {
+                    if !this.type_wf(b_ty) { return false; }
+                    assert!(!a_ty.references(b_id));
+                    this.instantiate_right(a_ty, b_id)
+                })
+            }
+
+            _ => false
+        }
+    }
+
+    pub fn instantiate_left(&mut self, a_id: ExistentialId, b_ty: &Type<'input>) -> bool {
+        assert!(false); loop { }
+    }
+
+    pub fn instantiate_right(&mut self, a_ty: &Type<'input>, b_id: ExistentialId) -> bool {
+        assert!(false); loop { }
+    }
+
     pub fn type_wf(&mut self, ty: &Type<'input>) -> bool
     {
         match *ty.kind() {
@@ -143,5 +235,49 @@ impl<'input> Context<'input> {
                 Type::new(TypeKind::Arrow(self.subst(a), self.subst(b)))
             }
         }
+    }
+
+    pub fn try<F>(&mut self, op: F) -> bool
+        where F: FnOnce(&mut Context<'input>) -> bool
+    {
+        let preserved: Context<'input> = self.clone();
+        if !op(self) {
+            *self = preserved;
+            false
+        } else {
+            true
+        }
+    }
+
+    pub fn fresh_existential(&mut self) -> ExistentialId {
+        let id = self.existentials;
+        self.existentials += 1;
+        ExistentialId(id)
+    }
+
+    pub fn pop_marker(&mut self, existential: ExistentialId) {
+        while let Some(item) = self.items.pop() {
+            match item {
+                ContextItem::Marker(id) if id == existential => {
+                    return;
+                }
+                _ => { }
+            }
+        }
+
+        assert!(false, "marker for {:?} not found", existential);
+    }
+
+    pub fn pop_type_decl(&mut self, id: Id<'input>) {
+        while let Some(item) = self.items.pop() {
+            match item {
+                ContextItem::TypeDecl(id1) if id1 == id => {
+                    return;
+                }
+                _ => { }
+            }
+        }
+
+        assert!(false, "type decl for {:?} not found", id);
     }
 }

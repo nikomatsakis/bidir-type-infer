@@ -2,6 +2,9 @@ use std::fmt::{Debug, Error, Formatter};
 use std::rc::Rc;
 use rusty_peg::Symbol;
 
+#[cfg(test)]
+mod test;
+
 ///////////////////////////////////////////////////////////////////////////
 // Identifiers
 
@@ -100,6 +103,47 @@ impl<'input> Type<'input> {
 
     pub fn kind(&self) -> &TypeKind<'input> {
         &self.kind
+    }
+
+    pub fn references(&self, id: ExistentialId) -> bool {
+        match *self.kind {
+            TypeKind::Var(_) |
+            TypeKind::Unit =>
+                false,
+            TypeKind::Existential(id1) =>
+                id == id1,
+            TypeKind::ForAll(_, ref ty) =>
+                ty.references(id),
+            TypeKind::Arrow(ref a, ref b) =>
+                a.references(id) || b.references(id),
+        }
+    }
+
+    // [a/$a] ty
+    pub fn instantiate(&self, from: Id<'input>, to: ExistentialId) -> Type<'input> {
+        match *self.kind {
+            TypeKind::Var(id) if id == from => {
+                Type::new(TypeKind::Existential(to))
+            }
+            TypeKind::Var(_) |
+            TypeKind::Unit => {
+                self.clone()
+            }
+            TypeKind::Existential(id) => {
+                assert!(id != to); // existential we are subst'ing in should have been fresh
+                self.clone()
+            }
+            TypeKind::ForAll(id, ref ty) => {
+                if id == from {
+                    self.clone()
+                } else {
+                    Type::new(TypeKind::ForAll(id, ty.instantiate(from, to)))
+                }
+            }
+            TypeKind::Arrow(ref a, ref b) => {
+                Type::new(TypeKind::Arrow(a.instantiate(from, to), b.instantiate(from, to)))
+            }
+        }
     }
 }
 
