@@ -28,3 +28,27 @@ fn cx_subst() {
     assert_eq!(cx.subst(&parser::parse_type("X -> (Y -> $1)")),
                parser::parse_type("X -> (Y -> Y)"));
 }
+
+#[test]
+fn subtype_different_ids() {
+    let mut cx = parser::parse_cx("A,B,C");
+    let mut ty1 = &parser::parse_type("B");
+    let mut ty2 = &parser::parse_type("C");
+    assert!(!cx.subtype(ty1, ty2));
+}
+
+#[test]
+fn subtype_same_id() {
+    let mut cx = parser::parse_cx("A,B,C");
+    let mut ty1 = &parser::parse_type("B");
+    assert!(cx.subtype(ty1, ty1));
+}
+
+#[test]
+fn subtype_arrow_id() {
+    let mut cx = parser::parse_cx("A,B,C");
+    let mut ty1 = &parser::parse_type("A -> B");
+    let mut ty2 = &parser::parse_type("A -> C");
+    assert!(cx.subtype(ty1, ty1));
+    assert!(!cx.subtype(ty1, ty2));
+}
