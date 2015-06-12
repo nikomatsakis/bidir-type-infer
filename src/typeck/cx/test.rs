@@ -1,5 +1,6 @@
 use super::*;
 
+use ast::ExistentialId;
 use parser;
 
 #[test]
@@ -59,4 +60,73 @@ fn subtype_forall_r() {
     let mut ty1 = &parser::parse_type("A");
     let mut ty2 = &parser::parse_type("forall x. x");
     assert!(!cx.subtype(ty1, ty2));
+}
+
+#[test]
+fn subtype_inst_left_two_vars_1() {
+    // instantiation order decides which becomes a pointer to which here:
+    let mut cx = parser::parse_cx("$1,$2");
+    let mut ty1 = parser::parse_type("$1");
+    let mut ty2 = parser::parse_type("$2");
+
+    assert!(cx.instantiate_left(ExistentialId(1), &ty2));
+    assert_eq!(cx.subst(&ty1), ty1);
+    assert_eq!(cx.subst(&ty2), ty1);
+}
+
+#[test]
+fn subtype_inst_left_two_vars_2() {
+    // instantiation order decides which becomes a pointer to which here:
+    let mut cx = parser::parse_cx("$2,$1");
+    let mut ty1 = parser::parse_type("$1");
+    let mut ty2 = parser::parse_type("$2");
+
+    assert!(cx.instantiate_left(ExistentialId(1), &ty2));
+    assert_eq!(cx.subst(&ty1), ty2);
+    assert_eq!(cx.subst(&ty2), ty2);
+}
+
+#[test]
+fn subtype_inst_left_existential_forall() {
+    // This is not allowed "because predicative polymorphism", i.e.,
+    // $1 can only be instantiated to a monotype.
+
+    let mut cx = parser::parse_cx("$1");
+    let mut ty1 = parser::parse_type("$1");
+    let mut ty2 = parser::parse_type("forall x. x");
+
+    assert!(!cx.instantiate_left(ExistentialId(1), &ty2));
+}
+
+#[test]
+fn subtype_inst_left_existential_unit() {
+    let mut cx = parser::parse_cx("$1");
+    let mut ty1 = parser::parse_type("$1");
+    let mut ty2 = parser::parse_type("()");
+
+    assert!(cx.instantiate_left(ExistentialId(1), &ty2));
+    assert_eq!(cx.subst(&ty1), ty2);
+}
+
+#[test]
+fn subtype_inst_left_existential_var_bad() {
+    // X must be in scope before $1 is declared
+
+    let mut cx = parser::parse_cx("$1,X");
+    let mut ty1 = parser::parse_type("$1");
+    let mut ty2 = parser::parse_type("X");
+
+    assert!(!cx.instantiate_left(ExistentialId(1), &ty2));
+}
+
+#[test]
+fn subtype_inst_left_existential_var_ok() {
+    // X must be in scope before $1 is declared
+
+    let mut cx = parser::parse_cx("X,$1");
+    let mut ty1 = parser::parse_type("$1");
+    let mut ty2 = parser::parse_type("X");
+
+    assert!(cx.instantiate_left(ExistentialId(1), &ty2));
+    assert_eq!(cx.subst(&ty1), ty2);
 }
