@@ -31,6 +31,22 @@ fn cx_subst() {
 }
 
 #[test]
+fn cx_subst_arrow() {
+    let mut cx = parser::parse_cx("X,Y,$1=X,$2=Y");
+
+    assert_eq!(cx.subst(&parser::parse_type("$1 -> ($2 -> $1)")),
+               parser::parse_type("X -> (Y -> X)"));
+}
+
+#[test]
+fn cx_subst_chain() {
+    let mut cx = parser::parse_cx("X,$1=X,$2=$1");
+
+    assert_eq!(cx.subst(&parser::parse_type("$2")),
+               parser::parse_type("X"));
+}
+
+#[test]
 fn subtype_different_ids() {
     let mut cx = parser::parse_cx("A,B,C");
     let mut ty1 = &parser::parse_type("B");
@@ -126,6 +142,18 @@ fn subtype_inst_left_existential_var_ok() {
     let mut cx = parser::parse_cx("X,$1");
     let mut ty1 = parser::parse_type("$1");
     let mut ty2 = parser::parse_type("X");
+
+    assert!(cx.instantiate_left(ExistentialId(1), &ty2));
+    assert_eq!(cx.subst(&ty1), ty2);
+}
+
+#[test]
+fn subtype_inst_left_arrow_ok() {
+    // X must be in scope before $1 is declared
+
+    let mut cx = parser::parse_cx("X,Y,$1");
+    let mut ty1 = parser::parse_type("$1");
+    let mut ty2 = parser::parse_type("X -> Y");
 
     assert!(cx.instantiate_left(ExistentialId(1), &ty2));
     assert_eq!(cx.subst(&ty1), ty2);
