@@ -1,4 +1,4 @@
-use ast::{self, ExistentialId, Id, Type, TypeKind};
+use ast::{self, ExistentialId, Id, Term, TermKind, Type, TypeKind};
 use std::cmp;
 use std::fmt::{Debug, Error, Formatter};
 use std::ops::Deref;
@@ -50,6 +50,9 @@ impl<'input> Debug for ContextItem<'input> {
     }
 }
 
+pub struct TypeError(pub String);
+pub type TypeResult<T> = Result<T, TypeError>;
+
 impl<'input> Context<'input> {
     ///////////////////////////////////////////////////////////////////////////
     // Construction
@@ -96,7 +99,7 @@ impl<'input> Context<'input> {
         self.any(|i| *i == item)
     }
 
-    pub fn lookup(&self, id: ExistentialId) -> Option<Type<'input>>
+    pub fn lookup_existential(&self, id: ExistentialId) -> Option<Type<'input>>
     {
         self.items.iter()
                   .filter_map(|item| match *item {
@@ -105,6 +108,16 @@ impl<'input> Context<'input> {
                   })
                   .next()
                   .unwrap() // assumes that `id` is in scope
+    }
+
+    pub fn lookup_var(&self, id: Id<'input>) -> Option<Type<'input>>
+    {
+        self.items.iter()
+                  .filter_map(|item| match *item {
+                      ContextItem::VarType(id1, ref v) if id == id1 => Some(v.clone()),
+                      _ => None
+                  })
+                  .next()
     }
 
     ///////////////////////////////////////////////////////////////////////////
@@ -117,7 +130,7 @@ impl<'input> Context<'input> {
     // but here we use mutability. If true is returned, then `self` is
     // mutated in place and the subtyping holds, else `cx` is
     // unmodified.
-    pub fn subtype(&mut self, a_ty: &Type<'input>, b_ty: &Type<'input>) -> bool {
+    pub fn subtype(&mut self, a_ty: &Type<'input>, b_ty: &Type<'input>) -> TypeResult<()> {
         match (a_ty.kind(), b_ty.kind()) {
             // Var
             (&TypeKind::Var(a_id), &TypeKind::Var(b_id)) if a_id == b_id => {
@@ -126,7 +139,7 @@ impl<'input> Context<'input> {
 
             // Unit
             (&TypeKind::Unit, &TypeKind::Unit) => {
-                true
+                Ok(())
             }
 
             // Exvar
@@ -137,7 +150,7 @@ impl<'input> Context<'input> {
             // <: ->
             (&TypeKind::Arrow(ref a_in, ref a_out), &TypeKind::Arrow(ref b_in, ref b_out)) => {
                 self.try(|this| {
-                    if !this.subtype(b_in, a_in) { return false; }
+                    this.subtype(b_in, a_in)?;
                     let a_out1 = this.subst(a_out);
                     let b_out1 = this.subst(b_out);
                     this.subtype(&a_out1, &b_out1)
@@ -152,8 +165,8 @@ impl<'input> Context<'input> {
                     this.items.push(ContextItem::ExistentialDecl(beta, None));
 
                     let a_ty1 = a_ty.instantiate(a_id, beta);
-                    this.subtype(&a_ty1, b_ty) &&
-                        this.pop_marker(beta)
+                    this.subtype(&a_ty1, b_ty)?;
+                    this.pop_marker(beta)
                 })
             }
 
@@ -161,15 +174,15 @@ impl<'input> Context<'input> {
             (_, &TypeKind::ForAll(b_id, ref b_quantified_ty)) => {
                 self.try(|this| {
                     this.items.push(ContextItem::TypeDecl(b_id));
-                    this.subtype(a_ty, b_quantified_ty) &&
-                        this.pop_type_decl(b_id)
+                    this.subtype(a_ty, b_quantified_ty)?;
+                    this.pop_type_decl(b_id)
                 })
             }
 
             // <: InstantiateL
             (&TypeKind::Existential(a_id), _) => {
                 self.try(|this| {
-                    if !this.type_wf(a_ty) { return false; }
+                    this.type_wf(a_ty)?;
                     assert!(!b_ty.references(a_id));
                     this.instantiate_left(a_id, b_ty)
                 })
@@ -178,47 +191,52 @@ impl<'input> Context<'input> {
             // <: InstantiateR
             (_, &TypeKind::Existential(b_id)) => {
                 self.try(|this| {
-                    if !this.type_wf(b_ty) { return false; }
+                    this.type_wf(b_ty)?;
                     assert!(!a_ty.references(b_id));
                     this.instantiate_right(a_ty, b_id)
                 })
             }
 
-            _ => false
+            _ => Err(TypeError(format!("subtype: no match")))
         }
     }
 
-    pub fn instantiate_left(&mut self, alpha: ExistentialId, b_ty: &Type<'input>) -> bool {
+    pub fn instantiate_left(&mut self, alpha: ExistentialId, b_ty: &Type<'input>) -> TypeResult<()> {
         match *b_ty.kind() {
             TypeKind::Var(b_id) => {
                 if let Some((a_index, None)) = self.find_existential_decl(alpha) {
                     // we need to check that the decl of b_id precedes
                     // alpha for cases like `$1 <: (forall x. x)`,
                     // which we want to fail
-                    self.items[..a_index].contains(&ContextItem::TypeDecl(b_id)) &&
+                    if !self.items[..a_index].contains(&ContextItem::TypeDecl(b_id)) {
+                        Err(TypeError(format!("no such existential `{:?}`", b_id)))
+                    } else {
                         self.assign(a_index, alpha, b_ty)
+                    }
                 } else {
-                    false
+                    // TODO wat
+                    Err(TypeError(format!("no or invalid existential decl for `{:?}`", alpha)))
                 }
             }
             TypeKind::Unit => { // InstLSolve
                 if let Some((a_index, None)) = self.find_existential_decl(alpha) {
                     self.assign(a_index, alpha, b_ty)
                 } else {
-                    false
+                    // TODO wat
+                    Err(TypeError(format!("no or invalid existential decl for `{:?}`", alpha)))
                 }
             }
-            TypeKind::Existential(b_id) => {
+            TypeKind::Existential(b_id) => { // InstLReach
                 self.unify(alpha, b_id)
             }
-            TypeKind::ForAll(id, ref ty) => {
+            TypeKind::ForAll(id, ref ty) => { // InstLAllR
                 self.try(|this| {
                     this.items.push(ContextItem::TypeDecl(id));
-                    this.instantiate_left(alpha, ty) &&
-                        this.pop_type_decl(id)
+                    this.instantiate_left(alpha, ty)?;
+                    this.pop_type_decl(id)
                 })
             }
-            TypeKind::Arrow(ref domain_ty, ref range_ty) => {
+            TypeKind::Arrow(ref domain_ty, ref range_ty) => { // InstLArr
                 match self.find_existential_decl(alpha) {
                     Some((alpha_index, None)) => {
                         self.try(|this| {
@@ -243,42 +261,45 @@ impl<'input> Context<'input> {
                                     range_id,
                                     None));
 
-                            this.instantiate_right(domain_ty, domain_id) && {
-                                let range_ty = this.subst(range_ty);
-                                this.instantiate_left(range_id, &range_ty)
-                            }
+                            this.instantiate_right(domain_ty, domain_id)?;
+
+                            let range_ty = this.subst(range_ty);
+                            this.instantiate_left(range_id, &range_ty)
                         })
                     }
                     _ => {
-                        false
+                        Err(TypeError(format!("instantiate_left({:?}, {:?})", alpha, b_ty)))
                     }
                 }
             }
         }
     }
 
-    pub fn instantiate_right(&mut self, a_ty: &Type<'input>, alpha: ExistentialId) -> bool {
+    pub fn instantiate_right(&mut self, a_ty: &Type<'input>, alpha: ExistentialId) -> TypeResult<()> {
         match *a_ty.kind() {
             TypeKind::Var(a_id) => {
                 if let Some((b_index, None)) = self.find_existential_decl(alpha) {
                     // we need to check that the decl of a_id precedes
                     // alpha for cases like `$1 <: (forall x. x)`,
                     // which we want to fail
-                    self.items[..b_index].contains(&ContextItem::TypeDecl(a_id)) &&
+                    if !self.items[..b_index].contains(&ContextItem::TypeDecl(a_id)) {
+                        Err(TypeError(format!("instantiate_right({:?}, {:?}) -- ordering", a_ty, alpha)))
+                    } else {
                         self.assign(b_index, alpha, a_ty)
+                    }
                 } else {
-                    false
+                    Err(TypeError(format!("instantiate_right({:?}, {:?})", a_ty, alpha)))
                 }
             }
             TypeKind::Unit => { // InstRSolve
                 if let Some((b_index, None)) = self.find_existential_decl(alpha) {
                     self.assign(b_index, alpha, a_ty)
                 } else {
-                    false
+                    Err(TypeError(format!("instantiate_right({:?}, {:?})", a_ty, alpha)))
                 }
             }
-            TypeKind::Existential(a_id) => {
-                self.unify(a_id, alpha)
+            TypeKind::Existential(b_id) => {
+                self.unify(b_id, alpha)
             }
             TypeKind::ForAll(a_id, ref a_subty) => {
                 self.try(|this| {
@@ -287,8 +308,8 @@ impl<'input> Context<'input> {
                     this.items.push(ContextItem::ExistentialDecl(beta, None));
 
                     let a_subty1 = a_subty.instantiate(a_id, beta);
-                    this.instantiate_right(&a_subty1, alpha) &&
-                        this.pop_marker(beta)
+                    this.instantiate_right(&a_subty1, alpha)?;
+                    this.pop_marker(beta)
                 })
             }
             TypeKind::Arrow(ref domain_ty, ref range_ty) => {
@@ -312,37 +333,46 @@ impl<'input> Context<'input> {
                                 alpha_index,
                                 ContextItem::ExistentialDecl(range_id, None));
 
-                            this.instantiate_left(domain_id, domain_ty) && {
-                                let range_ty = this.subst(range_ty);
-                                this.instantiate_right(&range_ty, range_id)
-                            }
+                            this.instantiate_left(domain_id, domain_ty)?;
+
+                            let range_ty = this.subst(range_ty);
+                            this.instantiate_right(&range_ty, range_id)
                         })
                     }
                     _ => {
-                        false
+                        Err(TypeError(format!("instantiate_right({:?}, {:?})", a_ty, alpha)))
                     }
                 }
             }
         }
     }
 
-    pub fn type_wf(&mut self, ty: &Type<'input>) -> bool
+    pub fn type_wf(&mut self, ty: &Type<'input>) -> TypeResult<()>
     {
         match *ty.kind() {
             TypeKind::Var(id) => {
-                self.contains(ContextItem::TypeDecl(id))
+                if self.contains(ContextItem::TypeDecl(id)) {
+                    Ok(())
+                } else {
+                    Err(TypeError(format!("type_wf({:?}) -- no var decl", ty)))
+                }
             }
             TypeKind::Unit => {
-                true
+                Ok(())
             }
             TypeKind::Existential(id) => {
-                self.find_existential_decl(id).is_some()
+                if self.find_existential_decl(id).is_some() {
+                    Ok(())
+                } else {
+                    Err(TypeError(format!("type_wf({:?}) -- no existential decl", ty)))
+                }
             }
             TypeKind::ForAll(id, ref ty) => {
                 self.with(ContextItem::TypeDecl(id), |this| this.type_wf(ty))
             }
             TypeKind::Arrow(ref a, ref b) => {
-                self.type_wf(a) && self.type_wf(b)
+                self.type_wf(a)?;
+                self.type_wf(b)
             }
         }
     }
@@ -354,7 +384,7 @@ impl<'input> Context<'input> {
                 ty.clone()
             }
             TypeKind::Existential(id) => {
-                match self.lookup(id) {
+                match self.lookup_existential(id) {
                     Some(u) => self.subst(&u),
                     None => ty.clone()
                 }
@@ -368,15 +398,16 @@ impl<'input> Context<'input> {
         }
     }
 
-    pub fn try<F>(&mut self, op: F) -> bool
-        where F: FnOnce(&mut Context<'input>) -> bool
+    pub fn try<F, T>(&mut self, op: F) -> TypeResult<T>
+        where F: FnOnce(&mut Context<'input>) -> TypeResult<T>
     {
         let preserved: Context<'input> = self.clone();
-        if !op(self) {
-            *self = preserved;
-            false
-        } else {
-            true
+        match op(self) {
+            Ok(v) => Ok(v),
+            Err(e) => {
+                *self = preserved;
+                Err(e)
+            }
         }
     }
 
@@ -392,31 +423,31 @@ impl<'input> Context<'input> {
         ExistentialId(id)
     }
 
-    pub fn pop_marker(&mut self, existential: ExistentialId) -> bool {
+    pub fn pop_marker(&mut self, existential: ExistentialId) -> TypeResult<()> {
         while let Some(item) = self.items.pop() {
             match item {
-                ContextItem::Marker(id) if id == existential => { return true; }
+                ContextItem::Marker(id) if id == existential => { return Ok(()); }
                 _ => { }
             }
         }
 
         assert!(false, "marker for {:?} not found", existential);
-        false
+        Err(TypeError(format!("pop_marker({:?})", existential)))
     }
 
-    pub fn pop_type_decl(&mut self, id: Id<'input>) -> bool {
+    pub fn pop_type_decl(&mut self, id: Id<'input>) -> TypeResult<()> {
         while let Some(item) = self.items.pop() {
             match item {
-                ContextItem::TypeDecl(id1) if id1 == id => { return true; }
+                ContextItem::TypeDecl(id1) if id1 == id => { return Ok(()); }
                 _ => { }
             }
         }
 
         assert!(false, "type decl for {:?} not found", id);
-        false
+        Err(TypeError(format!("pop_type_decl({:?})", id)))
     }
 
-    pub fn unify(&mut self, a: ExistentialId, b: ExistentialId) -> bool {
+    pub fn unify(&mut self, a: ExistentialId, b: ExistentialId) -> TypeResult<()> {
         match (self.find_existential_decl(a), self.find_existential_decl(b)) {
             (Some((a_index, None)), Some((b_index, None))) if a_index < b_index =>
                 // InstLReach
@@ -425,21 +456,21 @@ impl<'input> Context<'input> {
                 // InstLSolve
                 self.assign(a_index, a, &Type::new(TypeKind::Existential(b))),
             _ =>
-                false,
+                Err(TypeError(format!("unify({:?}, {:?})", a, b)))
         }
     }
 
-    pub fn assign(&mut self, index: usize, id: ExistentialId, ty: &Type<'input>) -> bool {
+    pub fn assign(&mut self, index: usize, id: ExistentialId, ty: &Type<'input>) -> TypeResult<()> {
         match &mut self.items[index] {
             &mut ContextItem::ExistentialDecl(id1, ref mut v) => {
                 assert_eq!(id, id1);
                 assert!(v.is_none());
                 *v = Some(ty.clone());
-                true
+                Ok(())
             }
             _ => {
                 assert!(false);
-                false
+                Err(TypeError(format!("assign({:?}, {:?}, {:?})", index, id, ty)))
             }
         }
     }

@@ -6,8 +6,8 @@ use parser;
 #[test]
 fn cx_iter() {
     let mut cx = parser::parse_cx("X");
-    assert!(cx.type_wf(&parser::parse_type("X")));
-    assert!(!cx.type_wf(&parser::parse_type("Y")));
+    assert!(cx.type_wf(&parser::parse_type("X")).is_ok());
+    assert!(cx.type_wf(&parser::parse_type("Y")).is_err());
 }
 
 #[test]
@@ -51,14 +51,14 @@ fn subtype_different_ids() {
     let mut cx = parser::parse_cx("A,B,C");
     let mut ty1 = &parser::parse_type("B");
     let mut ty2 = &parser::parse_type("C");
-    assert!(!cx.subtype(ty1, ty2));
+    assert!(cx.subtype(ty1, ty2).is_err());
 }
 
 #[test]
 fn subtype_same_id() {
     let mut cx = parser::parse_cx("A,B,C");
     let mut ty1 = &parser::parse_type("B");
-    assert!(cx.subtype(ty1, ty1));
+    assert!(cx.subtype(ty1, ty1).is_ok());
 }
 
 #[test]
@@ -66,8 +66,8 @@ fn subtype_arrow_id() {
     let mut cx = parser::parse_cx("A,B,C");
     let mut ty1 = &parser::parse_type("A -> B");
     let mut ty2 = &parser::parse_type("A -> C");
-    assert!(cx.subtype(ty1, ty1));
-    assert!(!cx.subtype(ty1, ty2));
+    assert!(cx.subtype(ty1, ty1).is_ok());
+    assert!(cx.subtype(ty1, ty2).is_err());
 }
 
 #[test]
@@ -75,7 +75,7 @@ fn subtype_forall_r() {
     let mut cx = parser::parse_cx("A,B,C");
     let mut ty1 = &parser::parse_type("A");
     let mut ty2 = &parser::parse_type("forall x. x");
-    assert!(!cx.subtype(ty1, ty2));
+    assert!(cx.subtype(ty1, ty2).is_err());
 }
 
 #[test]
@@ -85,7 +85,7 @@ fn subtype_inst_left_two_vars_1() {
     let mut ty1 = parser::parse_type("$1");
     let mut ty2 = parser::parse_type("$2");
 
-    assert!(cx.instantiate_left(ExistentialId(1), &ty2));
+    assert!(cx.instantiate_left(ExistentialId(1), &ty2).is_ok());
     assert_eq!(cx.subst(&ty1), ty1);
     assert_eq!(cx.subst(&ty2), ty1);
 }
@@ -97,7 +97,7 @@ fn subtype_inst_left_two_vars_2() {
     let mut ty1 = parser::parse_type("$1");
     let mut ty2 = parser::parse_type("$2");
 
-    assert!(cx.instantiate_left(ExistentialId(1), &ty2));
+    assert!(cx.instantiate_left(ExistentialId(1), &ty2).is_ok());
     assert_eq!(cx.subst(&ty1), ty2);
     assert_eq!(cx.subst(&ty2), ty2);
 }
@@ -111,7 +111,7 @@ fn subtype_inst_left_existential_forall() {
     let mut ty1 = parser::parse_type("$1");
     let mut ty2 = parser::parse_type("forall x. x");
 
-    assert!(!cx.instantiate_left(ExistentialId(1), &ty2));
+    assert!(cx.instantiate_left(ExistentialId(1), &ty2).is_err());
 }
 
 #[test]
@@ -120,7 +120,7 @@ fn subtype_inst_left_existential_unit() {
     let mut ty1 = parser::parse_type("$1");
     let mut ty2 = parser::parse_type("()");
 
-    assert!(cx.instantiate_left(ExistentialId(1), &ty2));
+    assert!(cx.instantiate_left(ExistentialId(1), &ty2).is_ok());
     assert_eq!(cx.subst(&ty1), ty2);
 }
 
@@ -132,7 +132,7 @@ fn subtype_inst_left_existential_var_bad() {
     let mut ty1 = parser::parse_type("$1");
     let mut ty2 = parser::parse_type("X");
 
-    assert!(!cx.instantiate_left(ExistentialId(1), &ty2));
+    assert!(cx.instantiate_left(ExistentialId(1), &ty2).is_err());
 }
 
 #[test]
@@ -143,7 +143,7 @@ fn subtype_inst_left_existential_var_ok() {
     let mut ty1 = parser::parse_type("$1");
     let mut ty2 = parser::parse_type("X");
 
-    assert!(cx.instantiate_left(ExistentialId(1), &ty2));
+    assert!(cx.instantiate_left(ExistentialId(1), &ty2).is_ok());
     assert_eq!(cx.subst(&ty1), ty2);
 }
 
@@ -155,6 +155,6 @@ fn subtype_inst_left_arrow_ok() {
     let mut ty1 = parser::parse_type("$1");
     let mut ty2 = parser::parse_type("X -> Y");
 
-    assert!(cx.instantiate_left(ExistentialId(1), &ty2));
+    assert!(cx.instantiate_left(ExistentialId(1), &ty2).is_ok());
     assert_eq!(cx.subst(&ty1), ty2);
 }
