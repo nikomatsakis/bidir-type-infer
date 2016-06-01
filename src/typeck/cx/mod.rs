@@ -85,6 +85,13 @@ impl<'input> Context<'input> {
         r
     }
 
+    pub fn prefix(&self, length: usize) -> Context<'input> {
+        Context {
+            items: self.items[..length].to_owned(),
+            existentials: self.existentials,
+        }
+    }
+
     ///////////////////////////////////////////////////////////////////////////
     // Queries
 
@@ -125,9 +132,57 @@ impl<'input> Context<'input> {
 
     // In the paper:
     //
+    //    Cx |- e => A -| Cx'
+    //
+    // but here we use mutability. If ok is returned, then `self` is
+    // mutated in place and the subtyping holds, else `cx` is
+    // unmodified.
+    //pub fn term_type(&mut self, e_term: &Term<'input>) -> TypeResult<Type<'input>> {
+    //    match e_term.kind() {
+    //        &TermKind::Var(id) => { // Var
+    //            match self.lookup_var(id) {
+    //                Some(t) => Ok(t),
+    //                None => Err(TypeError(format!("term_type({:?}) -- no such var", e_term)))
+    //            }
+    //        }
+    //
+    //        &TermKind::Ascription(ref term, ref ty) => { // Anno
+    //            self.ascribe_term(term, ty)?;
+    //            Ok(ty.clone())
+    //        }
+    //
+    //        &TermKind::Unit => { // 1|=>
+    //            Ok(Type::new(TypeKind::Unit))
+    //        }
+    //
+    //        &TermKind::Lambda(ref x, ref body) => { // ->|=>
+    //            unimplemented!()
+    //        }
+    //
+    //        &TermKind::Call(ref func, ref arg) => { // ->E
+    //            unimplemented!()
+    //        }
+    //    }
+    //}
+
+    // In the paper:
+    //
+    //    Cx |- e <= A -| Cx'
+    //
+    // but here we use mutability. If ok is returned, then `self` is
+    // mutated in place and the subtyping holds, else `cx` is
+    // unmodified.
+    //pub fn ascribe_term(&mut self, e_term: &Term<'input>, a_ty: &Type<'input>) -> TypeResult<()> {
+    //    match e_term.kind() {
+    //        &
+    //    }
+    //}
+
+    // In the paper:
+    //
     //    Cx |- A <: B -| Cx'
     //
-    // but here we use mutability. If true is returned, then `self` is
+    // but here we use mutability. If ok is returned, then `self` is
     // mutated in place and the subtyping holds, else `cx` is
     // unmodified.
     pub fn subtype(&mut self, a_ty: &Type<'input>, b_ty: &Type<'input>) -> TypeResult<()> {
@@ -158,42 +213,60 @@ impl<'input> Context<'input> {
             }
 
             // <: ForAll L
-            (&TypeKind::ForAll(a_id, ref a_ty), _) => {
+            (&TypeKind::ForAll(alpha_id, ref a_ty), _) => {
                 self.try(|this| {
-                    let beta = this.fresh_existential();
-                    this.items.push(ContextItem::Marker(beta));
-                    this.items.push(ContextItem::ExistentialDecl(beta, None));
+                    let alpha_hat = this.fresh_existential();
+                    this.items.push(ContextItem::Marker(alpha_hat));
+                    this.items.push(ContextItem::ExistentialDecl(alpha_hat, None));
 
-                    let a_ty1 = a_ty.instantiate(a_id, beta);
-                    this.subtype(&a_ty1, b_ty)?;
-                    this.pop_marker(beta)
+                    let a_ty = a_ty.instantiate(alpha_id, alpha_hat);
+                    this.subtype(&a_ty, b_ty)?;
+                    this.pop_marker(alpha_hat)
                 })
             }
 
             // <: ForAll R
-            (_, &TypeKind::ForAll(b_id, ref b_quantified_ty)) => {
+            (_, &TypeKind::ForAll(alpha_id, ref b_ty)) => {
                 self.try(|this| {
-                    this.items.push(ContextItem::TypeDecl(b_id));
-                    this.subtype(a_ty, b_quantified_ty)?;
-                    this.pop_type_decl(b_id)
+                    this.items.push(ContextItem::TypeDecl(alpha_id));
+                    this.subtype(a_ty, b_ty)?;
+                    this.pop_type_decl(alpha_id)
                 })
+            }
+
+            // <: InstantiateL or <: InstantiateR combined with
+            // InstLReach or InstRReach
+            (&TypeKind::Existential(a_id), &TypeKind::Existential(b_id)) => {
+                let a_index = self.find_unbound_existential(a_id)?;
+                let b_index = self.find_unbound_existential(b_id)?;
+                if a_index < b_index { // will use InstLReach
+                    self.instantiate_left(a_id, b_ty)
+                } else { // will use InstRReach
+                    self.instantiate_right(a_ty, b_id)
+                }
             }
 
             // <: InstantiateL
             (&TypeKind::Existential(a_id), _) => {
                 self.try(|this| {
-                    this.type_wf(a_ty)?;
-                    assert!(!b_ty.references(a_id));
-                    this.instantiate_left(a_id, b_ty)
+                    if !b_ty.references(a_id) {
+                        this.type_wf(a_ty)?;
+                        this.instantiate_left(a_id, b_ty)
+                    } else {
+                        Err(TypeError(format!("subtype({:?}, {:?}) -- cycle on {:?}", a_ty, b_ty, a_id)))
+                    }
                 })
             }
 
             // <: InstantiateR
             (_, &TypeKind::Existential(b_id)) => {
                 self.try(|this| {
-                    this.type_wf(b_ty)?;
-                    assert!(!a_ty.references(b_id));
-                    this.instantiate_right(a_ty, b_id)
+                    if !a_ty.references(b_id) {
+                        this.type_wf(b_ty)?;
+                        this.instantiate_right(a_ty, b_id)
+                    } else {
+                        Err(TypeError(format!("subtype({:?}, {:?}) -- cycle on {:?}", a_ty, b_ty, b_id)))
+                    }
                 })
             }
 
@@ -201,148 +274,117 @@ impl<'input> Context<'input> {
         }
     }
 
-    pub fn instantiate_left(&mut self, alpha: ExistentialId, b_ty: &Type<'input>) -> TypeResult<()> {
+    pub fn instantiate_left(&mut self, alpha_id: ExistentialId, b_ty: &Type<'input>) -> TypeResult<()> {
+        // all rules require Cx[alpha]
+        let alpha_index = self.find_unbound_existential(alpha_id)?;
+
+        // InstLReach
+        if let &TypeKind::Existential(beta_id) = b_ty.kind() {
+            let beta_index = self.find_unbound_existential(beta_id)?;
+            if alpha_index < beta_index {
+                return self.assign(beta_index, beta_id, &Type::new(TypeKind::Existential(alpha_id)));
+            }
+        }
+
         match *b_ty.kind() {
-            TypeKind::Var(b_id) => {
-                if let Some((a_index, None)) = self.find_existential_decl(alpha) {
-                    // we need to check that the decl of b_id precedes
-                    // alpha for cases like `$1 <: (forall x. x)`,
-                    // which we want to fail
-                    if !self.items[..a_index].contains(&ContextItem::TypeDecl(b_id)) {
-                        Err(TypeError(format!("no such existential `{:?}`", b_id)))
-                    } else {
-                        self.assign(a_index, alpha, b_ty)
-                    }
-                } else {
-                    // TODO wat
-                    Err(TypeError(format!("no or invalid existential decl for `{:?}`", alpha)))
-                }
-            }
-            TypeKind::Unit => { // InstLSolve
-                if let Some((a_index, None)) = self.find_existential_decl(alpha) {
-                    self.assign(a_index, alpha, b_ty)
-                } else {
-                    // TODO wat
-                    Err(TypeError(format!("no or invalid existential decl for `{:?}`", alpha)))
-                }
-            }
-            TypeKind::Existential(b_id) => { // InstLReach
-                self.unify(alpha, b_id)
+            TypeKind::Existential(_) | TypeKind::Var(_) | TypeKind::Unit => { // InstLSolve
+                self.prefix(alpha_index).type_wf(b_ty)?;
+                self.assign(alpha_index, alpha_id, b_ty)
             }
             TypeKind::ForAll(id, ref ty) => { // InstLAllR
                 self.try(|this| {
                     this.items.push(ContextItem::TypeDecl(id));
-                    this.instantiate_left(alpha, ty)?;
+                    this.instantiate_left(alpha_id, ty)?;
                     this.pop_type_decl(id)
                 })
             }
             TypeKind::Arrow(ref domain_ty, ref range_ty) => { // InstLArr
-                match self.find_existential_decl(alpha) {
-                    Some((alpha_index, None)) => {
-                        self.try(|this| {
-                            let domain_id = this.fresh_existential();
-                            let range_id = this.fresh_existential();
+                self.try(|this| {
+                    let domain_id = this.fresh_existential();
+                    let range_id = this.fresh_existential();
 
-                            // hmm, maybe a vec wasn't the best choice :)
-                            this.assign(
-                                alpha_index,
-                                alpha,
-                                &Type::new(TypeKind::Arrow(
-                                    Type::new(TypeKind::Existential(domain_id)),
-                                    Type::new(TypeKind::Existential(range_id)))));
-                            this.items.insert(
-                                alpha_index,
-                                ContextItem::ExistentialDecl(
-                                    domain_id,
-                                    None));
-                            this.items.insert(
-                                alpha_index,
-                                ContextItem::ExistentialDecl(
-                                    range_id,
-                                    None));
+                    // insert decl of `domain_id`, `range_id` before
+                    // `alpha_id`, so that we can assign `domain_id ->
+                    // range_id` to `alpha`; the need for this
+                    // suggests a vec isn't really the best overall
+                    // choice, but whatever :)
+                    this.assign(
+                        alpha_index,
+                        alpha_id,
+                        &Type::new(TypeKind::Arrow(
+                            Type::new(TypeKind::Existential(domain_id)),
+                            Type::new(TypeKind::Existential(range_id)))));
+                    this.items.insert(
+                        alpha_index,
+                        ContextItem::ExistentialDecl(
+                            domain_id,
+                            None));
+                    this.items.insert(
+                        alpha_index,
+                        ContextItem::ExistentialDecl(
+                            range_id,
+                            None));
 
-                            this.instantiate_right(domain_ty, domain_id)?;
+                    this.instantiate_right(domain_ty, domain_id)?;
 
-                            let range_ty = this.subst(range_ty);
-                            this.instantiate_left(range_id, &range_ty)
-                        })
-                    }
-                    _ => {
-                        Err(TypeError(format!("instantiate_left({:?}, {:?})", alpha, b_ty)))
-                    }
-                }
+                    let range_ty = this.subst(range_ty);
+                    this.instantiate_left(range_id, &range_ty)
+                })
             }
         }
     }
 
-    pub fn instantiate_right(&mut self, a_ty: &Type<'input>, alpha: ExistentialId) -> TypeResult<()> {
-        match *a_ty.kind() {
-            TypeKind::Var(a_id) => {
-                if let Some((b_index, None)) = self.find_existential_decl(alpha) {
-                    // we need to check that the decl of a_id precedes
-                    // alpha for cases like `$1 <: (forall x. x)`,
-                    // which we want to fail
-                    if !self.items[..b_index].contains(&ContextItem::TypeDecl(a_id)) {
-                        Err(TypeError(format!("instantiate_right({:?}, {:?}) -- ordering", a_ty, alpha)))
-                    } else {
-                        self.assign(b_index, alpha, a_ty)
-                    }
-                } else {
-                    Err(TypeError(format!("instantiate_right({:?}, {:?})", a_ty, alpha)))
-                }
-            }
-            TypeKind::Unit => { // InstRSolve
-                if let Some((b_index, None)) = self.find_existential_decl(alpha) {
-                    self.assign(b_index, alpha, a_ty)
-                } else {
-                    Err(TypeError(format!("instantiate_right({:?}, {:?})", a_ty, alpha)))
-                }
-            }
-            TypeKind::Existential(b_id) => {
-                self.unify(b_id, alpha)
-            }
-            TypeKind::ForAll(a_id, ref a_subty) => {
-                self.try(|this| {
-                    let beta = this.fresh_existential();
-                    this.items.push(ContextItem::Marker(beta));
-                    this.items.push(ContextItem::ExistentialDecl(beta, None));
+    pub fn instantiate_right(&mut self, a_ty: &Type<'input>, alpha_id: ExistentialId) -> TypeResult<()> {
+        // all rules requires Cx[alpha]
+        let alpha_index = self.find_unbound_existential(alpha_id)?;
 
-                    let a_subty1 = a_subty.instantiate(a_id, beta);
-                    this.instantiate_right(&a_subty1, alpha)?;
-                    this.pop_marker(beta)
+        // InstRReach
+        if let &TypeKind::Existential(beta_id) = a_ty.kind() {
+            let beta_index = self.find_unbound_existential(beta_id)?;
+            if alpha_index < beta_index {
+                return self.assign(beta_index, beta_id, &Type::new(TypeKind::Existential(alpha_id)));
+            }
+        }
+
+        match *a_ty.kind() {
+            TypeKind::Existential(_) | TypeKind::Var(_) | TypeKind::Unit => { // InstRSolve
+                self.prefix(alpha_index).type_wf(a_ty)?;
+                self.assign(alpha_index, alpha_id, a_ty)
+            }
+            TypeKind::ForAll(beta_id, ref b_ty) => { // InstRAllL
+                self.try(|this| {
+                    let beta_hat_id = this.fresh_existential();
+                    this.items.push(ContextItem::Marker(beta_hat_id));
+                    this.items.push(ContextItem::ExistentialDecl(beta_hat_id, None));
+
+                    let b_ty = b_ty.instantiate(beta_id, beta_hat_id);
+                    this.instantiate_right(&b_ty, alpha_id)?;
+                    this.pop_marker(beta_hat_id)
                 })
             }
-            TypeKind::Arrow(ref domain_ty, ref range_ty) => {
-                match self.find_existential_decl(alpha) {
-                    Some((alpha_index, None)) => {
-                        self.try(|this| {
-                            let domain_id = this.fresh_existential();
-                            let range_id = this.fresh_existential();
+            TypeKind::Arrow(ref domain_ty, ref range_ty) => { // InstRArr
+                self.try(|this| {
+                    let domain_id = this.fresh_existential();
+                    let range_id = this.fresh_existential();
 
-                            // hmm, maybe a vec wasn't the best choice :)
-                            this.assign(
-                                alpha_index,
-                                alpha,
-                                &Type::new(TypeKind::Arrow(
-                                    Type::new(TypeKind::Existential(domain_id)),
-                                    Type::new(TypeKind::Existential(range_id)))));
-                            this.items.insert(
-                                alpha_index,
-                                ContextItem::ExistentialDecl(domain_id, None));
-                            this.items.insert(
-                                alpha_index,
-                                ContextItem::ExistentialDecl(range_id, None));
+                    this.assign(
+                        alpha_index,
+                        alpha_id,
+                        &Type::new(TypeKind::Arrow(
+                            Type::new(TypeKind::Existential(domain_id)),
+                            Type::new(TypeKind::Existential(range_id)))));
+                    this.items.insert(
+                        alpha_index,
+                        ContextItem::ExistentialDecl(domain_id, None));
+                    this.items.insert(
+                        alpha_index,
+                        ContextItem::ExistentialDecl(range_id, None));
 
-                            this.instantiate_left(domain_id, domain_ty)?;
+                    this.instantiate_left(domain_id, domain_ty)?;
 
-                            let range_ty = this.subst(range_ty);
-                            this.instantiate_right(&range_ty, range_id)
-                        })
-                    }
-                    _ => {
-                        Err(TypeError(format!("instantiate_right({:?}, {:?})", a_ty, alpha)))
-                    }
-                }
+                    let range_ty = this.subst(range_ty);
+                    this.instantiate_right(&range_ty, range_id)
+                })
             }
         }
     }
@@ -486,5 +528,14 @@ impl<'input> Context<'input> {
                       _ => None
                   })
                   .next()
+    }
+
+    pub fn find_unbound_existential(&self, alpha: ExistentialId)
+                                    -> TypeResult<usize> {
+        match self.find_existential_decl(alpha) {
+            Some((idx, None)) => Ok(idx),
+            Some((idx, Some(_))) => Err(TypeError(format!("find_unbound_existential({:?}) -- already bound", alpha))),
+            None => Err(TypeError(format!("find_unbound_existential({:?}) -- not in scope", alpha))),
+        }
     }
 }

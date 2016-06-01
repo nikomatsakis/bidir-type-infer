@@ -104,13 +104,12 @@ fn subtype_inst_left_two_vars_2() {
 
 #[test]
 fn subtype_inst_left_existential_forall() {
-    // This is not allowed "because predicative polymorphism", i.e.,
-    // $1 can only be instantiated to a monotype.
-
     let mut cx = parser::parse_cx("$1");
     let mut ty1 = parser::parse_type("$1");
     let mut ty2 = parser::parse_type("forall x. x");
 
+    // type variables in this system cannot be instantiated with
+    // higher-ranked values
     assert!(cx.instantiate_left(ExistentialId(1), &ty2).is_err());
 }
 

@@ -1,6 +1,5 @@
 use std::fmt::{Debug, Error, Formatter};
 use std::rc::Rc;
-use rusty_peg::Symbol;
 
 #[cfg(test)]
 mod test;
